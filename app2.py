@@ -5,12 +5,61 @@ from PIL import Image
 from io import BytesIO
 import urllib.parse
 from datetime import datetime
+import time # Impor pustaka time untuk memberi jeda
 
 # Konfigurasi Halaman
 st.set_page_config(page_title="Trend & Generate AI untuk Adobe Stock", layout="wide")
 
 st.title("🌍 Trend-Driven AI Image Generator")
 st.write("Dapatkan rekomendasi tren global, buat instruksi (prompt) tingkat dewa, dan hasilkan gambar untuk Adobe Stock!")
+
+# --- Fungsi Kunci: Mengambil gambar dengan fitur Retry ---
+def get_image_with_retry(prompt, retries=3, delay=1):
+    """
+    Fungsi untuk mengambil gambar dari API dengan mencoba lagi (retry logic) jika gagal.
+    Args:
+        prompt (str): Prompt instruksi gambar yang sudah bersih.
+        retries (int): Berapa kali aplikasi akan mencoba lagi.
+        delay (int): Berapa detik jeda antar percobaan.
+    Returns:
+        PIL.Image: Gambar jika berhasil, None jika semua percobaan gagal.
+    """
+    safe_prompt = urllib.parse.quote(prompt)
+    image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
+    
+    status_text = st.empty() # Membuat placeholder status yang dinamis
+    
+    for attempt in range(retries):
+        status_text.write(f"⌛ Sedang melukis gambar (Percobaan {attempt + 1}/{retries})...")
+        try:
+            # Menambahkan timeout 40 detik agar server API tidak putus koneksi terlalu cepat
+            response = requests.get(image_url, timeout=40)
+            
+            # Jika respon server berhasil (status_code == 200)
+            if response.status_code == 200:
+                status_text.empty() # Hapus teks status
+                return Image.open(BytesIO(response.content))
+            
+            # Jika respon server gagal (status_code selain 200)
+            else:
+                st.warning(f"Percobaan {attempt + 1} gagal (Status: {response.status_code}). Server sibuk.")
+                time.sleep(delay) # Beri jeda sebelum mencoba lagi
+                delay += 1 # Tambahkan jeda setiap percobaan untuk mencegah beban server (exponential backoff)
+                
+        except requests.exceptions.Timeout:
+            st.warning(f"Percobaan {attempt + 1} gagal (Timeout). Proses pembuatan gambar terlalu lama.")
+            time.sleep(delay)
+            delay += 1 # Tambahkan jeda
+            
+        except requests.exceptions.ConnectionError:
+            st.warning(f"Percobaan {attempt + 1} gagal (Koneksi). Terjadi gangguan jaringan.")
+            time.sleep(delay)
+            delay += 1
+
+    # Jika semua percobaan gagal setelah looping selesai
+    status_text.empty()
+    return None
+
 
 # Sidebar untuk API Key
 with st.sidebar:
@@ -83,22 +132,16 @@ with tab2:
                 st.code(final_prompt, language="text")
                 st.write("*Anda bisa menyalin prompt ini untuk digunakan di Midjourney atau Adobe Firefly untuk kualitas ultra-HD.*")
                 
-                # 2. Gunakan Pollinations AI (Gratis) untuk meng-generate gambar
-                with st.spinner("Sedang melukis gambar (ini memakan waktu beberapa detik)..."):
-                    # Format URL untuk API gratis
-                    safe_prompt = urllib.parse.quote(final_prompt)
-                    image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
-                    
-                    # Mengambil gambar
-                    response = requests.get(image_url)
-                    if response.status_code == 200:
-                        image = Image.open(BytesIO(response.content))
-                        
-                        st.markdown("### 🖼️ Hasil Gambar Sementara")
-                        st.image(image, caption="Generated via Pollinations.ai")
-                        st.info("Catatan: Gambar dari AI gratis ini bagus untuk referensi. Untuk diunggah ke Adobe Stock (yang butuh resolusi 4K ke atas tanpa cacat visual), pertimbangkan untuk menggunakan *Master Prompt* di atas ke Adobe Firefly atau Midjourney.")
-                    else:
-                        st.error("Gagal mengambil gambar dari server pembuat gambar.")
+                # 2. Gunakan Fungsi Kunci baru kita untuk mengambil gambar dengan ketahanan tinggi
+                # Perhatikan: st.spinner() untuk bagian ini sudah dipindahkan ke dalam fungsi get_image_with_retry() agar lebih informatif
+                image_result = get_image_with_retry(final_prompt)
+                
+                if image_result:
+                    st.markdown("### 🖼️ Hasil Gambar Sementara")
+                    st.image(image_result, caption="Generated via Pollinations.ai")
+                    st.info("Catatan: Gambar dari AI gratis ini bagus untuk referensi. Untuk diunggah ke Adobe Stock (yang butuh resolusi 4K ke atas tanpa cacat visual), pertimbangkan untuk menggunakan *Master Prompt* di atas ke Adobe Firefly atau Midjourney.")
+                else:
+                    st.error("Gagal mengambil gambar dari server pembuat gambar setelah 3 kali percobaan. Server API tersebut mungkin sedang offline atau terlalu sibuk. Silakan coba lagi beberapa menit kemudian dengan prompt yang sama.")
 
             except Exception as e:
-                st.error(f"Terjadi kesalahan: {e}")
+                st.error(f"Terjadi kesalahan tak terduga: {e}")
