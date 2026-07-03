@@ -1,147 +1,86 @@
 import streamlit as st
 import google.generativeai as genai
-import requests
-from PIL import Image
-from io import BytesIO
-import urllib.parse
-from datetime import datetime
-import time # Impor pustaka time untuk memberi jeda
 
-# Konfigurasi Halaman
-st.set_page_config(page_title="Trend & Generate AI untuk Adobe Stock", layout="wide")
+# Konfigurasi Halaman UI
+st.set_page_config(page_title="AI Creator & Keyworder", layout="centered")
 
-st.title("🌍 Trend-Driven AI Image Generator")
-st.write("Dapatkan rekomendasi tren global, buat instruksi (prompt) tingkat dewa, dan hasilkan gambar untuk Adobe Stock!")
-
-# --- Fungsi Kunci: Mengambil gambar dengan fitur Retry ---
-def get_image_with_retry(prompt, retries=3, delay=1):
-    """
-    Fungsi untuk mengambil gambar dari API dengan mencoba lagi (retry logic) jika gagal.
-    Args:
-        prompt (str): Prompt instruksi gambar yang sudah bersih.
-        retries (int): Berapa kali aplikasi akan mencoba lagi.
-        delay (int): Berapa detik jeda antar percobaan.
-    Returns:
-        PIL.Image: Gambar jika berhasil, None jika semua percobaan gagal.
-    """
-    safe_prompt = urllib.parse.quote(prompt)
-    image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
-    
-    status_text = st.empty() # Membuat placeholder status yang dinamis
-    
-    for attempt in range(retries):
-        status_text.write(f"⌛ Sedang melukis gambar (Percobaan {attempt + 1}/{retries})...")
-        try:
-            # Menambahkan timeout 40 detik agar server API tidak putus koneksi terlalu cepat
-            response = requests.get(image_url, timeout=40)
-            
-            # Jika respon server berhasil (status_code == 200)
-            if response.status_code == 200:
-                status_text.empty() # Hapus teks status
-                return Image.open(BytesIO(response.content))
-            
-            # Jika respon server gagal (status_code selain 200)
-            else:
-                st.warning(f"Percobaan {attempt + 1} gagal (Status: {response.status_code}). Server sibuk.")
-                time.sleep(delay) # Beri jeda sebelum mencoba lagi
-                delay += 1 # Tambahkan jeda setiap percobaan untuk mencegah beban server (exponential backoff)
-                
-        except requests.exceptions.Timeout:
-            st.warning(f"Percobaan {attempt + 1} gagal (Timeout). Proses pembuatan gambar terlalu lama.")
-            time.sleep(delay)
-            delay += 1 # Tambahkan jeda
-            
-        except requests.exceptions.ConnectionError:
-            st.warning(f"Percobaan {attempt + 1} gagal (Koneksi). Terjadi gangguan jaringan.")
-            time.sleep(delay)
-            delay += 1
-
-    # Jika semua percobaan gagal setelah looping selesai
-    status_text.empty()
-    return None
-
+st.title("🎨 AI Creator & Keyworder")
+st.write("Aplikasi minimalis untuk meracik Prompt Gambar, Judul, Kategori, dan Keyword Adobe Stock dalam satu klik.")
 
 # Sidebar untuk API Key
 with st.sidebar:
     st.header("⚙️ Konfigurasi")
     api_key = st.text_input("Masukkan Google Gemini API Key:", type="password")
-    st.info("API Key ini digunakan untuk mencari tren dan meracik prompt profesional.")
+    st.info("Aplikasi ini super ringan dan hanya menggunakan Gemini API untuk meracik teks & metadata.")
 
-# Tab untuk navigasi
-tab1, tab2 = st.tabs(["📈 1. Rekomendasi Tren & Ide", "🎨 2. Generate Gambar"])
+st.header("Ide Desain Anda")
+user_idea = st.text_input("💡 Contoh: 'Karakter kartun kucing lucu dengan 4 ekspresi wajah berbeda' atau 'Pattern bunga vintage'")
+asset_type = st.radio("Pilih Jenis Aset:", ["Karakter / Ilustrasi", "Seamless Pattern (Pola)"])
 
-# --- TAB 1: REKOMENDASI TREN ---
-with tab1:
-    st.header("Rekomendasi Acara Global & Permintaan Pasar")
-    st.write("Adobe Stock sangat menyukai konten yang relevan dengan hari libur atau acara global 2-3 bulan sebelum acara tersebut dimulai.")
-    
-    if st.button("Cari Tren Global Saat Ini"):
-        if not api_key:
-            st.warning("Masukkan API Key Gemini di sidebar terlebih dahulu.")
-        else:
-            try:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-3.5-flash')
-                
-                # Menggunakan tanggal hari ini agar rekomendasinya akurat
-                current_date = datetime.now().strftime("%B %Y")
-                
-                prompt_trend = f"""
-                Saat ini adalah bulan {current_date}. 
-                Sebagai pakar tren microstock, sebutkan 5 acara global, hari libur, atau musim yang akan terjadi dalam 2 hingga 4 bulan ke depan.
-                Berikan ide visual spesifik yang sangat laku di Adobe Stock untuk masing-masing acara tersebut.
-                Gunakan bahasa Indonesia. Format dengan rapi menggunakan bullet points.
-                """
-                
-                with st.spinner("Menganalisis tren pasar global..."):
-                    response = model.generate_content(prompt_trend)
-                    st.success("Tren berhasil ditemukan!")
-                    st.markdown(response.text)
-            except Exception as e:
-                st.error(f"Terjadi kesalahan: {e}")
+if st.button("Generate Semua Metadata", type="primary"):
+    if not api_key:
+        st.warning("⚠️ Silakan masukkan API Key di sidebar terlebih dahulu.")
+    elif not user_idea:
+        st.warning("⚠️ Silakan ketik ide gambar Anda.")
+    else:
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-3.5-flash')
+            
+            # Meracik prompt khusus berdasarkan pilihan tipe aset
+            if asset_type == "Seamless Pattern (Pola)":
+                style_guide = "Focus on repeating seamless pattern design, flat vector style, cohesive color palette, clean lines, suitable for fabric or background."
+            else:
+                style_guide = "Focus on clear expressions, flat vector illustration style, solid white background, character design sheet layout, highly marketable for graphic design."
 
-# --- TAB 2: GENERATE GAMBAR ---
-with tab2:
-    st.header("Buat Gambar Berdasarkan Ide Anda")
-    user_idea = st.text_input("💡 Masukkan ide gambar Anda (contoh: 'Orang merayakan Halloween dengan gaya cyberpunk')")
-    
-    if st.button("Generate Prompt & Gambar", type="primary"):
-        if not api_key:
-            st.warning("Masukkan API Key Gemini di sidebar terlebih dahulu.")
-        elif not user_idea:
-            st.warning("Silakan ketik ide gambar Anda terlebih dahulu.")
-        else:
-            try:
-                # 1. Gunakan Gemini untuk memperindah prompt agar hasilnya estetik
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-3.5-flash')
-                
-                prompt_enhancer = f"""
-                Translate and enhance this simple idea into a highly detailed, professional text-to-image prompt in English. 
-                Focus on lighting, camera angle, atmosphere, and high-quality keywords suitable for Adobe Stock.
-                Do not include any conversational text, just return the final english prompt.
-                
-                Idea: {user_idea}
-                """
-                
-                with st.spinner("Meracik instruksi prompt tingkat dewa..."):
-                    enhanced_prompt_response = model.generate_content(prompt_enhancer)
-                    final_prompt = enhanced_prompt_response.text.strip()
-                
-                st.markdown("### 📝 Master Prompt (Instruksi yang Dihasilkan)")
-                st.code(final_prompt, language="text")
-                st.write("*Anda bisa menyalin prompt ini untuk digunakan di Midjourney atau Adobe Firefly untuk kualitas ultra-HD.*")
-                
-                # 2. Gunakan Fungsi Kunci baru kita untuk mengambil gambar dengan ketahanan tinggi
-                # Perhatikan: st.spinner() untuk bagian ini sudah dipindahkan ke dalam fungsi get_image_with_retry() agar lebih informatif
-                image_result = get_image_with_retry(final_prompt)
-                
-                if image_result:
-                    st.markdown("### 🖼️ Hasil Gambar Sementara")
-                    st.image(image_result, caption="Generated via Pollinations.ai")
-                    st.info("Catatan: Gambar dari AI gratis ini bagus untuk referensi. Untuk diunggah ke Adobe Stock (yang butuh resolusi 4K ke atas tanpa cacat visual), pertimbangkan untuk menggunakan *Master Prompt* di atas ke Adobe Firefly atau Midjourney.")
-                else:
-                    st.error("Gagal mengambil gambar dari server pembuat gambar setelah 3 kali percobaan. Server API tersebut mungkin sedang offline atau terlalu sibuk. Silakan coba lagi beberapa menit kemudian dengan prompt yang sama.")
+            master_prompt = f"""
+            You are an expert Adobe Stock contributor. The user wants to create this asset: "{user_idea}".
+            
+            Generate the following in English:
+            1. **Master Prompt:** A highly detailed text-to-image prompt to generate this exact idea. {style_guide}
+            2. **Title:** A highly descriptive title for Adobe Stock (max 200 chars).
+            3. **Category:** Select EXACTLY ONE relevant Adobe Stock category (e.g., Graphic Resources, Animals, Hobbies and Leisure, Backgrounds, etc).
+            4. **Keywords:** 30-50 highly relevant keywords, strictly comma-separated, ordered by importance.
 
-            except Exception as e:
-                st.error(f"Terjadi kesalahan tak terduga: {e}")
+            Format the exact output like this:
+            **Master Prompt:** [Your Prompt]
+            ---
+            **Title:** [Your Title]
+            
+            **Category:** [Your Category]
+            
+            **Keywords:** [keyword1, keyword2, keyword3, ...]
+            """
+            
+            with st.spinner("AI sedang meracik resep aset Anda..."):
+                response = model.generate_content(master_prompt)
+                result_text = response.text
+                
+            st.success("Selesai! 🚀")
+            
+            # Memisahkan output untuk tampilan yang lebih rapi
+            parts = result_text.split("---")
+            
+            # Bagian 1: Prompt untuk di-copy ke Bing/Midjourney
+            st.markdown("### 1️⃣ Master Prompt (Gunakan untuk membuat gambar)")
+            st.write("Salin teks di bawah ini ke Bing Image Creator, Adobe Firefly, atau Midjourney:")
+            if "**Master Prompt:**" in parts[0]:
+                prompt_only = parts[0].replace("**Master Prompt:**", "").strip()
+                st.code(prompt_only, language="text")
+            else:
+                st.write(parts[0])
+                
+            # Bagian 2: Metadata untuk di-copy ke Adobe Stock
+            st.markdown("### 2️⃣ Metadata (Gunakan untuk Adobe Stock)")
+            if len(parts) > 1:
+                metadata_section = parts[1].strip()
+                st.markdown(metadata_section)
+                
+                # Ekstraksi Keyword Khusus
+                if "**Keywords:**" in metadata_section:
+                    st.markdown("📋 **Copy Keywords Saja:**")
+                    kw_only = metadata_section.split("**Keywords:**")[-1].strip()
+                    st.code(kw_only, language="text")
+
+        except Exception as e:
+            st.error(f"Terjadi kesalahan saat menghubungi server AI: {e}")
